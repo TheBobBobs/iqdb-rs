@@ -70,6 +70,10 @@ impl DB {
                     .push((i - offset) as u32);
             }
         }
+        if !avgl_y.is_empty() {
+            let image_index = ImageIndex::new(offset, avgl_y, avgl_i, avgl_q, colors);
+            indexes.push(image_index);
+        }
         Self { indexes, images }
     }
 
