@@ -29,8 +29,7 @@ impl TryFrom<Vec<sqlite::Value>> for ImageData {
                 let sig = sig.as_mut_ptr() as *mut i16;
                 let mut sig = unsafe { Vec::from_raw_parts(sig, length, capacity) };
                 if sig.len() != 120 {
-                    println!("{}", sig.len());
-                    return Err(());
+                    panic!("Invalid signature len: {}", sig.len());
                 }
                 sig[0..40].sort();
                 sig[40..80].sort();

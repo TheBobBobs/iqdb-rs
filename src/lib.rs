@@ -2,20 +2,16 @@
 
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
+use haar::Signature;
 use index::ImageIndex;
 use parse::ImageData;
 
-use crate::bucket::CHUNK_SIZE;
+use crate::index::CHUNK_SIZE;
 
 mod bucket;
+mod haar;
 mod index;
 mod parse;
-
-#[derive(Clone)]
-pub struct Signature {
-    avgl: (f64, f64, f64),
-    sig: Vec<i16>,
-}
 
 pub struct DB {
     indexes: Vec<ImageIndex>,
@@ -23,61 +19,50 @@ pub struct DB {
 }
 
 impl DB {
-    pub fn new(path: &str) -> Self {
-        let connection = sqlite::open(path).unwrap();
-        let query = "SELECT * FROM images";
-        let parsed = connection.prepare(query).unwrap().into_iter().map(|row| {
-            let values: Vec<sqlite::Value> = row.unwrap().into();
-            ImageData::try_from(values).unwrap()
-        });
-
-        let mut avgl_y = Vec::with_capacity(CHUNK_SIZE);
-        let mut avgl_i = Vec::with_capacity(CHUNK_SIZE);
-        let mut avgl_q = Vec::with_capacity(CHUNK_SIZE);
-        let mut colors = {
-            let v = vec![Vec::new(); 128 * 128];
-            let signs = [(); 2].map(|_| v.clone());
-            [(); 3].map(|_| signs.clone())
+    pub fn new(images: impl IntoIterator<Item = ImageData>) -> Self {
+        let mut db = Self {
+            indexes: Vec::new(),
+            images: Vec::new(),
         };
-
-        let mut indexes = Vec::new();
-        let mut images = Vec::new();
-        let mut offset = 0;
-        for (i, image) in parsed.into_iter().enumerate() {
-            if i >= offset + CHUNK_SIZE {
-                println!("{}", i);
-                let image_index = ImageIndex::new(offset, avgl_y, avgl_i, avgl_q, colors);
-                avgl_y = Vec::with_capacity(CHUNK_SIZE);
-                avgl_i = Vec::with_capacity(CHUNK_SIZE);
-                avgl_q = Vec::with_capacity(CHUNK_SIZE);
-                colors = {
-                    let v = vec![Vec::new(); 128 * 128];
-                    let signs = [(); 2].map(|_| v.clone());
-                    [(); 3].map(|_| signs.clone())
-                };
-                indexes.push(image_index);
-                offset += CHUNK_SIZE;
-            }
-            images.push((image.id, image.post_id));
-
-            avgl_y.push(image.avgl.0 as f32);
-            avgl_i.push(image.avgl.1 as f32);
-            avgl_q.push(image.avgl.2 as f32);
-            for (coef_i, &coef) in image.sig.iter().enumerate() {
-                let color = coef_i / 40;
-                let sign = coef < 0;
-                colors[color][sign as usize][coef.unsigned_abs() as usize]
-                    .push((i - offset) as u32);
-            }
+        for image in images.into_iter() {
+            db.insert(image)
         }
-        if !avgl_y.is_empty() {
-            let image_index = ImageIndex::new(offset, avgl_y, avgl_i, avgl_q, colors);
-            indexes.push(image_index);
+        println!("TotalImages: {}", db.images.len());
+        db
+    }
+
+    pub fn insert(&mut self, image: ImageData) {
+        let index = self.images.len() as u32;
+        self.images.push((image.id, image.post_id));
+        if self.indexes.is_empty() {
+            self.indexes.push(ImageIndex::new(0));
         }
-        Self { indexes, images }
+        let mut image_index = self.indexes.last_mut().unwrap();
+        if image_index.is_full() {
+            println!("Images: {}", self.images.len());
+            self.indexes.push(ImageIndex::new(index));
+            image_index = self.indexes.last_mut().unwrap();
+        }
+        let sig = Signature {
+            avgl: image.avgl,
+            sig: image.sig,
+        };
+        image_index.append(index, sig)
+    }
+
+    pub fn delete(&mut self, id: u32, image: ImageData) {
+        let sig = Signature {
+            avgl: image.avgl,
+            sig: image.sig,
+        };
+        let chunk_index = (id / CHUNK_SIZE) as usize;
+        if let Some(image_index) = self.indexes.get_mut(chunk_index) {
+            image_index.remove(id, sig);
+        }
     }
 
     pub fn query(&self, sig: &Signature) -> Vec<(f32, u32)> {
+        let images = &self.images;
         let mut all_scores: Vec<_> = self
             .indexes
             .par_iter()
@@ -85,7 +70,7 @@ impl DB {
                 let scores = image_index.query(sig);
                 scores
                     .into_iter()
-                    .map(|(score, index)| (score, self.images[index].1))
+                    .map(|(score, index)| (score, images[index as usize].1))
                     .collect::<Vec<_>>()
             })
             .flatten()
@@ -102,7 +87,15 @@ mod tests {
 
     #[test]
     fn query() {
-        let db = DB::new("iqdb.sqlite");
+        let connection = sqlite::open("iqdb.sqlite").unwrap();
+        let db = {
+            let query = "SELECT * FROM images";
+            let parsed = connection.prepare(query).unwrap().into_iter().map(|row| {
+                let values: Vec<sqlite::Value> = row.unwrap().into();
+                ImageData::try_from(values).unwrap()
+            });
+            DB::new(parsed)
+        };
         // Post 138934
         let sig = Signature {
             avgl: (
@@ -131,5 +124,14 @@ mod tests {
         let ids: Vec<_> = result.iter().map(|(_, id)| id.to_string()).collect();
         let ids = ids.join(",");
         println!("https://danbooru.donmai.us/posts?tags=order:custom+id:{ids}");
+    }
+
+    #[test]
+    fn signature() {
+        let sig = Signature::from_image("138934.jpg");
+        println!("AVGL: {:?}", sig.avgl);
+        println!("Sig1: {:?}", &sig.sig[0..40]);
+        println!("Sig2: {:?}", &sig.sig[40..80]);
+        println!("Sig3: {:?}", &sig.sig[80..120]);
     }
 }

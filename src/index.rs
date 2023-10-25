@@ -1,12 +1,15 @@
 use std::arch::x86_64::{_mm512_loadu_ps, _mm512_mask_sub_ps, _mm512_set1_ps, _mm512_storeu_ps};
 
 use crate::{
-    bucket::{Bucket, Ids, PACKED_SIZE},
-    Signature,
+    bucket::{Bucket, PACKED_SIZE},
+    haar::Signature,
 };
 
+pub(crate) type ChunkId = u16;
+pub(crate) const CHUNK_SIZE: u32 = ChunkId::MAX as u32 + 1;
+
 pub(crate) struct ImageIndex {
-    offset: usize,
+    offset: u32,
     avgl_y: Vec<f32>,
     avgl_i: Vec<f32>,
     avgl_q: Vec<f32>,
@@ -14,28 +17,62 @@ pub(crate) struct ImageIndex {
 }
 
 impl ImageIndex {
-    pub(crate) fn new(
-        offset: usize,
-        avgl_y: Vec<f32>,
-        avgl_i: Vec<f32>,
-        avgl_q: Vec<f32>,
-        colors: [[Vec<Vec<u32>>; 2]; 3],
-    ) -> Self {
+    pub(crate) fn new(offset: u32) -> Self {
+        let buckets = {
+            let vecs = vec![Bucket::new(); 128 * 128];
+            let signs = [(); 2].map(|_| vecs.clone());
+            [(); 3].map(|_| signs.clone())
+        };
         Self {
             offset,
-            avgl_y,
-            avgl_i,
-            avgl_q,
-            buckets: colors.map(|sign| sign.map(|c| c.into_iter().map(Bucket::new).collect())),
+            avgl_y: Vec::with_capacity(CHUNK_SIZE as usize),
+            avgl_i: Vec::with_capacity(CHUNK_SIZE as usize),
+            avgl_q: Vec::with_capacity(CHUNK_SIZE as usize),
+            buckets,
         }
     }
 
-    fn get_bucket(&self, color: usize, coef: i16) -> &Bucket {
+    pub(crate) fn is_full(&self) -> bool {
+        self.avgl_y.len() == CHUNK_SIZE as usize
+    }
+
+    pub(crate) fn append(&mut self, id: u32, signature: Signature) {
+        assert_eq!(self.offset + self.avgl_y.len() as u32, id, "Invalid ID");
+        self.avgl_y.push(signature.avgl.0 as f32);
+        self.avgl_i.push(signature.avgl.1 as f32);
+        self.avgl_q.push(signature.avgl.2 as f32);
+        if signature.avgl.0 == 0.0 {
+            return;
+        }
+        let id = (id - self.offset) as ChunkId;
+        for (coef_i, coef) in signature.sig.into_iter().enumerate() {
+            let bucket = self.bucket_mut(coef_i / 40, coef);
+            bucket.append(id);
+        }
+    }
+
+    pub(crate) fn remove(&mut self, id: u32, signature: Signature) {
+        let id = (id - self.offset) as usize;
+        if id < self.avgl_y.len() {
+            self.avgl_y[id] = 0.0;
+            for (coef_i, coef) in signature.sig.into_iter().enumerate() {
+                let bucket = self.bucket_mut(coef_i / 40, coef);
+                bucket.remove(id as ChunkId);
+            }
+        }
+    }
+
+    fn bucket(&self, color: usize, coef: i16) -> &Bucket {
         let sign = coef < 0;
         &self.buckets[color][sign as usize][coef.unsigned_abs() as usize]
     }
 
-    pub(crate) fn query(&self, looking_for: &Signature) -> Vec<(f32, usize)> {
+    fn bucket_mut(&mut self, color: usize, coef: i16) -> &mut Bucket {
+        let sign = coef < 0;
+        &mut self.buckets[color][sign as usize][coef.unsigned_abs() as usize]
+    }
+
+    pub(crate) fn query(&self, looking_for: &Signature) -> Vec<(f32, u32)> {
         const WEIGHTS: [[f32; 3]; 6] = [
             [5.00, 19.21, 34.37],
             [0.83, 1.26, 0.36],
@@ -58,7 +95,7 @@ impl ImageIndex {
         }
 
         for (coef_i, &coef) in looking_for.sig.iter().enumerate() {
-            let bucket = self.get_bucket(coef_i / 40, coef);
+            let bucket = self.bucket(coef_i / 40, coef);
 
             let w = coef.unsigned_abs();
             let w = (w / 128).max(w % 128).min(5) as usize;
@@ -66,7 +103,8 @@ impl ImageIndex {
             scale -= weight;
 
             match &bucket {
-                Bucket::Ids(Ids::Array(ids)) => {
+                Bucket::Empty => {}
+                Bucket::Array(ids) => {
                     let index = ids[0] as usize;
                     *unsafe { scores.get_unchecked_mut(index) } -= weight;
                     for &id in &ids[1..] {
@@ -77,7 +115,7 @@ impl ImageIndex {
                         *unsafe { scores.get_unchecked_mut(index) } -= weight;
                     }
                 }
-                Bucket::Ids(Ids::Vec(ids)) => {
+                Bucket::Vec(ids) => {
                     for &id in ids {
                         let index = id as usize;
                         *unsafe { scores.get_unchecked_mut(index) } -= weight;
@@ -104,6 +142,7 @@ impl ImageIndex {
             if score >= sorted[19].0 {
                 continue;
             }
+            let index = index as u32;
             let result = sorted.binary_search_by(|(s, i)| s.total_cmp(&score).then(i.cmp(&index)));
             match result {
                 Ok(i) => sorted.insert(i, (score, index)),
