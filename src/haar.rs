@@ -1,6 +1,4 @@
-use std::f64::consts::FRAC_1_SQRT_2;
-
-use image::imageops::FilterType;
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 
 const NUM_PIXELS: usize = 128;
 const NUM_PIXELS_SQUARED: usize = NUM_PIXELS * NUM_PIXELS;
@@ -24,6 +22,7 @@ fn rgb_to_yiq(r: &mut [f64], g: &mut [f64], b: &mut [f64]) {
 }
 
 impl Signature {
+    #[allow(clippy::approx_constant)]
     fn haar_2d(a: &mut [f64]) {
         let mut i = 0;
         let mut temp = [0.0; NUM_PIXELS >> 1];
@@ -34,7 +33,7 @@ impl Signature {
             let mut h = NUM_PIXELS;
             while h > 1 {
                 let h1 = h >> 1;
-                c *= FRAC_1_SQRT_2;
+                c *= 0.7071;
 
                 let mut k = 0;
                 let mut j1 = i;
@@ -64,7 +63,7 @@ impl Signature {
             let mut h = NUM_PIXELS;
             while h > 1 {
                 let h1 = h >> 1;
-                c *= FRAC_1_SQRT_2;
+                c *= 0.7071;
 
                 let mut k = 0;
                 let mut j1 = i;
@@ -87,10 +86,9 @@ impl Signature {
                     k += 1;
                     j1 += NUM_PIXELS;
                 }
-                a[i] *= c;
-
                 h = h1;
             }
+            a[i] *= c;
         }
     }
 
@@ -108,7 +106,7 @@ impl Signature {
     fn get_m_largest(data: &[f64]) -> [i16; NUM_COEFS] {
         struct V {
             i: usize,
-            d: i16,
+            d: f64,
         }
         impl PartialEq for V {
             fn eq(&self, other: &Self) -> bool {
@@ -123,7 +121,7 @@ impl Signature {
         }
         impl Ord for V {
             fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-                self.d.cmp(&other.d).reverse()
+                self.d.total_cmp(&other.d).reverse()
             }
         }
         let mut heap = std::collections::BinaryHeap::with_capacity(NUM_COEFS);
@@ -131,7 +129,7 @@ impl Signature {
         for i in 1..NUM_COEFS + 1 {
             let value = V {
                 i,
-                d: data[i].abs() as i16,
+                d: data[i].abs(),
             };
             heap.push(value);
         }
@@ -139,9 +137,10 @@ impl Signature {
         for i in NUM_COEFS + 1..NUM_PIXELS_SQUARED {
             let value = V {
                 i,
-                d: data[i].abs() as i16,
+                d: data[i].abs(),
             };
-            if value.d > heap.peek().unwrap().d {
+            let min = heap.peek().unwrap();
+            if value.d > min.d {
                 heap.pop();
                 heap.push(value);
             }
@@ -177,11 +176,8 @@ impl Signature {
         Signature { avgl, sig }
     }
 
-    pub fn from_image(path: &str) -> Signature {
-        let img = image::open(path).unwrap();
-        // TOOD: Produces different values than IQDB.
-        let img = img.resize_exact(NUM_PIXELS as u32, NUM_PIXELS as u32, FilterType::Nearest);
-        let rgb = img.as_rgb8().unwrap();
+    pub fn from_image(img: &DynamicImage) -> Signature {
+        let img = resized(img);
 
         let mut a = vec![0.0; NUM_PIXELS_SQUARED];
         let mut b = vec![0.0; NUM_PIXELS_SQUARED];
@@ -189,7 +185,7 @@ impl Signature {
 
         for y in 0..NUM_PIXELS {
             for x in 0..NUM_PIXELS {
-                if let Some(pixel) = rgb.get_pixel_checked(x as u32, y as u32) {
+                if let Some(pixel) = img.get_pixel_checked(x as u32, y as u32) {
                     let index = x + y * NUM_PIXELS;
                     a[index] = pixel[0] as f64;
                     b[index] = pixel[1] as f64;
@@ -201,4 +197,84 @@ impl Signature {
         Self::transform(&mut a, &mut b, &mut c);
         Self::calc_haar(&a, &b, &c)
     }
+}
+
+pub fn resized(img: &DynamicImage) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
+    const ALPHA_MAX: u8 = 127;
+    let mut dst = image::ImageBuffer::<Rgba<u8>, _>::new(NUM_PIXELS as u32, NUM_PIXELS as u32);
+    for y in 0..NUM_PIXELS {
+        for x in 0..NUM_PIXELS {
+            let mut spixels = 0.0;
+            let (mut red, mut green, mut blue, mut alpha) = (0.0, 0.0, 0.0, 0.0);
+            let (mut alpha_sum, mut contrib_sum) = (0.0, 0.0);
+            let sy1 = y as f32 * img.height() as f32 / NUM_PIXELS as f32;
+            let sy2 = (y + 1) as f32 * img.height() as f32 / NUM_PIXELS as f32;
+            let mut sy = sy1;
+            let (mut sx, mut sx1, mut sx2);
+            while sy < sy2 {
+                let mut yportion = 1.0;
+                if sy.floor() == sy1.floor() {
+                    yportion = 1.0 - (sy - sy.floor());
+                    if yportion > sy2 - sy1 {
+                        yportion = sy2 - sy1;
+                    }
+                    sy = sy.floor();
+                } else if sy == sy2.floor() {
+                    yportion = sy2 - sy2.floor();
+                }
+                sx1 = x as f32 * img.width() as f32 / NUM_PIXELS as f32;
+                sx2 = (x + 1) as f32 * img.width() as f32 / NUM_PIXELS as f32;
+                sx = sx1;
+                while sx < sx2 {
+                    let mut xportion = 1.0;
+                    if sx.floor() == sx1.floor() {
+                        xportion = 1.0 - (sx - sx.floor());
+                        if xportion > sx2 - sx1 {
+                            xportion = sx2 - sx1;
+                        }
+                        sx = sx.floor();
+                    } else if sx == sx2.floor() {
+                        xportion = sx2 - sx2.floor();
+                    }
+                    let pcontribution = xportion * yportion;
+                    let Rgba([r, g, b, a]) = img.get_pixel(sx as u32, sy as u32);
+
+                    let alpha_factor = (ALPHA_MAX - a) as f32 * pcontribution;
+                    red += r as f32 * alpha_factor;
+                    green += g as f32 * alpha_factor;
+                    blue += b as f32 * alpha_factor;
+                    alpha += a as f32 * alpha_factor;
+                    alpha_sum += alpha_factor;
+                    contrib_sum += pcontribution;
+                    spixels += xportion * yportion;
+                    sx += 1.0;
+                }
+                sy += 1.0;
+            }
+
+            if spixels != 0.0 {
+                red /= spixels;
+                green /= spixels;
+                blue /= spixels;
+                alpha /= spixels;
+            }
+            if alpha_sum != 0.0 {
+                if contrib_sum != 0.0 {
+                    alpha_sum /= contrib_sum;
+                }
+                red /= alpha_sum;
+                green /= alpha_sum;
+                blue /= alpha_sum;
+            }
+
+            red = red.round().clamp(0.0, 255.0);
+            green = green.round().clamp(0.0, 255.0);
+            blue = blue.round().clamp(0.0, 255.0);
+            alpha = alpha.round().clamp(0.0, ALPHA_MAX as f32);
+
+            let pixel = dst.get_pixel_mut(x as u32, y as u32);
+            pixel.0 = [red as u8, green as u8, blue as u8, alpha as u8];
+        }
+    }
+    dst
 }
