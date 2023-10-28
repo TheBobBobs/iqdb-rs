@@ -61,13 +61,16 @@ impl DB {
         }
     }
 
-    pub fn query(&self, sig: &Signature) -> Vec<(f32, u32)> {
+    pub fn query(&self, sig: &Signature, limit: usize) -> Vec<(f32, u32)> {
+        if limit == 0 {
+            return Vec::new();
+        }
         let images = &self.images;
         let mut all_scores: Vec<_> = self
             .indexes
             .par_iter()
             .map(|image_index| {
-                let scores = image_index.query(sig);
+                let scores = image_index.query(sig, limit);
                 scores
                     .into_iter()
                     .map(|(score, index)| (score, images[index as usize].1))
@@ -76,7 +79,7 @@ impl DB {
             .flatten()
             .collect();
         all_scores.sort_by(|a, b| a.partial_cmp(b).unwrap().reverse());
-        all_scores.truncate(20);
+        all_scores.truncate(limit);
         all_scores
     }
 }
@@ -100,7 +103,7 @@ mod tests {
         let sig = Signature::from_image(&img);
 
         let start_time = std::time::Instant::now();
-        let result = db.query(&sig);
+        let result = db.query(&sig, 20);
         let elapsed = start_time.elapsed().as_nanos();
         assert_eq!(result[0].0, 93.70242);
         assert_eq!(result[0].1, 138_934);

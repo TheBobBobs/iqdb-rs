@@ -72,7 +72,7 @@ impl ImageIndex {
         &mut self.buckets[color][sign as usize][coef.unsigned_abs() as usize]
     }
 
-    pub(crate) fn query(&self, looking_for: &Signature) -> Vec<(f32, u32)> {
+    pub(crate) fn query(&self, looking_for: &Signature, limit: usize) -> Vec<(f32, u32)> {
         const WEIGHTS: [[f32; 3]; 6] = [
             [5.00, 19.21, 34.37],
             [0.83, 1.26, 0.36],
@@ -133,13 +133,13 @@ impl ImageIndex {
             }
         }
 
-        let mut sorted = vec![(f32::MAX, 0); 21];
+        let mut sorted = vec![(f32::MAX, 0); limit + 1];
         for (index, score) in scores.into_iter().enumerate().take(total) {
             // is_deleted
             if self.avgl_y[index] == 0. {
                 continue;
             }
-            if score >= sorted[19].0 {
+            if score >= sorted[limit - 1].0 {
                 continue;
             }
             let index = index as u32;
@@ -147,13 +147,13 @@ impl ImageIndex {
             match result {
                 Ok(i) => sorted.insert(i, (score, index)),
                 Err(i) => {
-                    if i >= 20 {
+                    if i >= limit {
                         continue;
                     }
                     sorted.insert(i, (score, index));
                 }
             }
-            sorted.truncate(20);
+            sorted.truncate(limit);
         }
 
         if scale != 0. {
