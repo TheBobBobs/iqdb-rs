@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
-use rustiq_db::{ImageData, Signature, DB};
+use iqdb_rs::{ImageData, Signature, DB};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
 
