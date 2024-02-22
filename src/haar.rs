@@ -1,3 +1,5 @@
+use std::{fmt::Display, str::FromStr};
+
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 
 const NUM_PIXELS: usize = 128;
@@ -8,6 +10,43 @@ const NUM_COEFS: usize = 40;
 pub struct Signature {
     pub avgl: (f64, f64, f64),
     pub sig: Vec<i16>,
+}
+
+impl FromStr for Signature {
+    type Err = ();
+
+    fn from_str(mut s: &str) -> Result<Self, Self::Err> {
+        s = s.strip_prefix("iqdb_").unwrap_or(s);
+        let mut avgl = [0., 0., 0.];
+        for f in &mut avgl {
+            let bits = u64::from_str_radix(&s[0..16], 16).unwrap();
+            *f = f64::from_bits(bits);
+            s = &s[16..];
+        }
+        let mut sig = vec![0; NUM_COEFS * 3];
+        for i in &mut sig {
+            let bits = u16::from_str_radix(&s[0..4], 16).unwrap();
+            *i = unsafe { std::mem::transmute(bits) };
+            s = &s[4..];
+        }
+        Ok(Self {
+            avgl: (avgl[0], avgl[1], avgl[2]),
+            sig,
+        })
+    }
+}
+
+impl Display for Signature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "iqdb_")?;
+        write!(f, "{:016x}", self.avgl.0.to_bits())?;
+        write!(f, "{:016x}", self.avgl.1.to_bits())?;
+        write!(f, "{:016x}", self.avgl.2.to_bits())?;
+        for &i in &self.sig {
+            write!(f, "{:04x}", unsafe { std::mem::transmute::<i16, u16>(i) })?;
+        }
+        Ok(())
+    }
 }
 
 fn rgb_to_yiq(r: &mut [f64], g: &mut [f64], b: &mut [f64]) {
