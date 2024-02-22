@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
+use clap::Parser;
 use iqdb_rs::{ImageData, Signature, DB};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
@@ -31,10 +32,23 @@ pub enum ApiResponse<T, E = ApiError> {
     Ok(T),
     Err { error: E },
 }
+#[derive(Parser)]
+struct Args {
+    /// The address to bind to
+    #[arg(short = 'h', long = "host", default_value = "0.0.0.0")]
+    host: String,
+    /// The port to listen on
+    #[arg(short = 'p', long = "port", default_value_t = 5588)]
+    port: u16,
+    /// The path to the sqlite db
+    #[arg(short = 'd', long = "database", default_value = "iqdb.sqlite")]
+    db_path: std::path::PathBuf,
+}
 
 #[tokio::main]
 async fn main() {
-    let sql_db = sqlite::open("iqdb.sqlite").unwrap();
+    let args = Args::parse();
+    let sql_db = sqlite::open(args.db_path).unwrap();
     let db = {
         let query = "SELECT * FROM images";
         let parsed = sql_db.prepare(query).unwrap().into_iter().map(|row| {
@@ -52,7 +66,8 @@ async fn main() {
         .route("/status", get(get_status))
         .layer(Extension(db))
         .layer(Extension(sql_db));
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3002").await.unwrap();
+    let addr = format!("{}:{}", args.host, args.port);
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
