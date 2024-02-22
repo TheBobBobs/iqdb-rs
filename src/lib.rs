@@ -3,9 +3,9 @@
 #[cfg(feature = "multi-thread")]
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
-use haar::Signature;
+pub use haar::Signature;
 use index::ImageIndex;
-use parse::ImageData;
+pub use parse::ImageData;
 
 use crate::index::CHUNK_SIZE;
 
@@ -16,31 +16,36 @@ mod parse;
 
 pub struct DB {
     indexes: Vec<ImageIndex>,
-    images: Vec<(u32, u32)>,
+    image_ids: Vec<u32>,
 }
 
 impl DB {
     pub fn new(images: impl IntoIterator<Item = ImageData>) -> Self {
         let mut db = Self {
             indexes: Vec::new(),
-            images: Vec::new(),
+            image_ids: Vec::new(),
         };
         for image in images.into_iter() {
             db.insert(image)
         }
-        println!("TotalImages: {}", db.images.len());
+        println!("TotalImages: {}", db.image_ids.len());
         db
     }
 
+    /// Will count images deleted since startup
+    pub fn image_count(&self) -> usize {
+        self.image_ids.len()
+    }
+
     pub fn insert(&mut self, image: ImageData) {
-        let index = self.images.len() as u32;
-        self.images.push((image.id, image.post_id));
+        let index = self.image_ids.len() as u32;
+        self.image_ids.push(image.id);
         if self.indexes.is_empty() {
             self.indexes.push(ImageIndex::new(0));
         }
         let mut image_index = self.indexes.last_mut().unwrap();
         if image_index.is_full() {
-            println!("Images: {}", self.images.len());
+            println!("Images: {}", self.image_ids.len());
             self.indexes.push(ImageIndex::new(index));
             image_index = self.indexes.last_mut().unwrap();
         }

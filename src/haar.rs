@@ -6,7 +6,7 @@ const NUM_PIXELS: usize = 128;
 const NUM_PIXELS_SQUARED: usize = NUM_PIXELS * NUM_PIXELS;
 const NUM_COEFS: usize = 40;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Signature {
     pub avgl: (f64, f64, f64),
     pub sig: Vec<i16>,
@@ -165,6 +165,7 @@ impl Signature {
         }
         let mut heap = std::collections::BinaryHeap::with_capacity(NUM_COEFS);
 
+        #[allow(clippy::needless_range_loop)]
         for i in 1..NUM_COEFS + 1 {
             let value = V {
                 i,
@@ -173,6 +174,7 @@ impl Signature {
             heap.push(value);
         }
 
+        #[allow(clippy::needless_range_loop)]
         for i in NUM_COEFS + 1..NUM_PIXELS_SQUARED {
             let value = V {
                 i,

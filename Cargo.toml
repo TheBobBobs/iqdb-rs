@@ -12,6 +12,12 @@ sqlite = "0.31.1"
 # multi-thread dependencies
 rayon = { version = "1.8.0", optional = true }
 
+# bin dependencies
+axum = { version = "0.7.4", features = ["multipart"] }
+serde = { version = "1.0", features = ["derive"]}
+serde_json = "1.0"
+tokio = { version = "1.0", features = [ "macros", "rt-multi-thread" ] }
+
 
 [features]
 default = ["multi-thread", "simd"]
