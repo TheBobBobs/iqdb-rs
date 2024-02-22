@@ -3,7 +3,11 @@ use crate::index::{ChunkId, CHUNK_SIZE};
 pub(crate) type Packed = u16;
 pub(crate) const PACKED_SIZE: u32 = 16;
 
+#[cfg(feature = "simd")]
 const MAX_VEC_LEN: usize = CHUNK_SIZE as usize / (std::mem::size_of::<ChunkId>() * 8);
+#[cfg(not(feature = "simd"))]
+// prevent using masks without simd
+const MAX_VEC_LEN: usize = usize::MAX;
 
 #[derive(Clone)]
 pub(crate) enum Bucket {

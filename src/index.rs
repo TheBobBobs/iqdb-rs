@@ -1,3 +1,4 @@
+#[cfg(feature = "simd")]
 use std::arch::x86_64::{_mm512_loadu_ps, _mm512_mask_sub_ps, _mm512_set1_ps, _mm512_storeu_ps};
 
 use crate::{
@@ -86,6 +87,11 @@ impl ImageIndex {
         let mut scale = 0.;
         let mut scores: Vec<f32> = vec![0.; total + PACKED_SIZE as usize];
 
+        assert!(total <= self.avgl_y.len());
+        assert!(total <= self.avgl_i.len());
+        assert!(total <= self.avgl_q.len());
+        assert!(total <= scores.len());
+        #[allow(clippy::needless_range_loop)]
         for i in 0..total {
             let mut score = 0.;
             score += WEIGHTS[0][0] * (self.avgl_y[i] - looking_for.avgl.0 as f32).abs();
@@ -122,12 +128,21 @@ impl ImageIndex {
                     }
                 }
                 Bucket::Mask(mask) => {
-                    let m_weight = unsafe { _mm512_set1_ps(weight) };
-                    for (index, &m) in mask.iter().enumerate() {
-                        let index = index * 16;
-                        let m_score = unsafe { _mm512_loadu_ps(scores.as_ptr().add(index)) };
-                        let m_score = unsafe { _mm512_mask_sub_ps(m_score, m, m_score, m_weight) };
-                        unsafe { _mm512_storeu_ps(scores.as_mut_ptr().add(index), m_score) };
+                    #[cfg(feature = "simd")]
+                    {
+                        let m_weight = unsafe { _mm512_set1_ps(weight) };
+                        for (index, &m) in mask.iter().enumerate() {
+                            let index = index * 16;
+                            let m_score = unsafe { _mm512_loadu_ps(scores.as_ptr().add(index)) };
+                            let m_score =
+                                unsafe { _mm512_mask_sub_ps(m_score, m, m_score, m_weight) };
+                            unsafe { _mm512_storeu_ps(scores.as_mut_ptr().add(index), m_score) };
+                        }
+                    }
+                    #[cfg(not(feature = "simd"))]
+                    {
+                        let _ = mask;
+                        unreachable!()
                     }
                 }
             }

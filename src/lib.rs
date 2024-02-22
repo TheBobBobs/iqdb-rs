@@ -1,5 +1,6 @@
-#![feature(stdsimd)]
+#![feature(stdarch_x86_avx512)]
 
+#[cfg(feature = "multi-thread")]
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 use haar::Signature;
@@ -65,19 +66,21 @@ impl DB {
         if limit == 0 {
             return Vec::new();
         }
-        let images = &self.images;
-        let mut all_scores: Vec<_> = self
-            .indexes
-            .par_iter()
-            .map(|image_index| {
-                let scores = image_index.query(sig, limit);
-                scores
-                    .into_iter()
-                    .map(|(score, index)| (score, images[index as usize].1))
-                    .collect::<Vec<_>>()
-            })
-            .flatten()
-            .collect();
+        let image_ids = &self.image_ids;
+
+        let query_index = |image_index: &ImageIndex| {
+            let scores = image_index.query(sig, limit);
+            scores
+                .into_iter()
+                .map(|(score, index)| (score, image_ids[index as usize]))
+                .collect::<Vec<_>>()
+        };
+
+        #[cfg(feature = "multi-thread")]
+        let mut all_scores: Vec<_> = self.indexes.par_iter().map(query_index).flatten().collect();
+        #[cfg(not(feature = "multi-thread"))]
+        let mut all_scores: Vec<_> = self.indexes.iter().flat_map(query_index).collect();
+
         all_scores.sort_by(|a, b| a.partial_cmp(b).unwrap().reverse());
         all_scores.truncate(limit);
         all_scores

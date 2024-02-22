@@ -7,5 +7,13 @@ edition = "2021"
 
 [dependencies]
 image = "0.24.7"
-rayon = "1.8.0"
 sqlite = "0.31.1"
+
+# multi-thread dependencies
+rayon = { version = "1.8.0", optional = true }
+
+
+[features]
+default = ["multi-thread", "simd"]
+multi-thread = ["dep:rayon"]
+simd = []
