@@ -9,6 +9,29 @@ use iqdb_rs::{ImageData, Signature, DB};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiError {
+    MissingFile,
+    MissingFileOrHash,
+
+    InvalidFile,
+    InvalidHash,
+    InvalidImage,
+
+    Sqlite {
+        code: Option<isize>,
+        message: Option<String>,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum ApiResponse<T, E = ApiError> {
+    Ok(T),
+    Err { error: E },
+}
+
 #[tokio::main]
 async fn main() {
     let sql_db = sqlite::open("iqdb.sqlite").unwrap();
@@ -21,7 +44,6 @@ async fn main() {
         DB::new(parsed)
     };
     let db = Arc::new(RwLock::new(db));
-    // TODO rwlock?
     let sql_db = Arc::new(Mutex::new(sql_db));
 
     let app = Router::new()
@@ -32,6 +54,28 @@ async fn main() {
         .layer(Extension(sql_db));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3002").await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn get_signature(
+    hash: Option<String>,
+    form: Option<Multipart>,
+) -> Result<Signature, ApiError> {
+    if let Some(hash) = hash {
+        hash.parse().map_err(|_| ApiError::InvalidHash)
+    } else if let Some(mut form) = form {
+        let maybe_field = form.next_field().await.map_err(|_| ApiError::InvalidFile)?;
+        let Some(field) = maybe_field else {
+            return Err(ApiError::MissingFileOrHash);
+        };
+        if field.name() != Some("file") {
+            return Err(ApiError::InvalidFile);
+        }
+        let bytes = field.bytes().await.map_err(|_| ApiError::InvalidFile)?;
+        let img = image::load_from_memory(&bytes).map_err(|_| ApiError::InvalidImage)?;
+        Ok(Signature::from_image(&img))
+    } else {
+        Err(ApiError::MissingFileOrHash)
+    }
 }
 
 const fn query_default_limit() -> usize {
@@ -70,23 +114,10 @@ async fn query(
     Extension(db): Extension<Arc<RwLock<DB>>>,
     Query(GetQuery { limit, hash }): Query<GetQuery>,
     form: Option<Multipart>,
-) -> Json<GetQueryResponse> {
-    let looking_for = if let Some(hash) = hash {
-        hash.parse().unwrap()
-    } else if let Some(mut form) = form {
-        let Ok(Some(field)) = form.next_field().await else {
-            panic!()
-        };
-        if field.name() != Some("file") {
-            panic!();
-        }
-        let Ok(bytes) = field.bytes().await else {
-            panic!();
-        };
-        let img = image::load_from_memory(&bytes).unwrap();
-        Signature::from_image(&img)
-    } else {
-        panic!();
+) -> Json<ApiResponse<GetQueryResponse>> {
+    let looking_for = match get_signature(hash, form).await {
+        Ok(s) => s,
+        Err(error) => return Json(ApiResponse::Err { error }),
     };
 
     let result = {
@@ -135,7 +166,8 @@ async fn query(
         .collect();
     posts.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap().reverse());
 
-    Json(GetQueryResponse { posts })
+    let response = GetQueryResponse { posts };
+    Json(ApiResponse::Ok(response))
 }
 
 #[derive(Serialize)]
@@ -147,19 +179,17 @@ async fn post_image(
     Extension(sql_db): Extension<Arc<Mutex<sqlite::Connection>>>,
     Extension(db): Extension<Arc<RwLock<DB>>>,
     Path(post_id): Path<u32>,
-    mut form: Multipart,
-) -> Json<PostImageResponse> {
-    let Ok(Some(field)) = form.next_field().await else {
-        panic!()
+    form: Multipart,
+) -> Json<ApiResponse<PostImageResponse>> {
+    let sig = match get_signature(None, Some(form)).await {
+        Ok(sig) => sig,
+        Err(mut error) => {
+            if matches!(error, ApiError::MissingFileOrHash) {
+                error = ApiError::MissingFile;
+            }
+            return Json(ApiResponse::Err { error });
+        }
     };
-    if field.name() != Some("file") {
-        panic!();
-    }
-    let Ok(bytes) = field.bytes().await else {
-        panic!();
-    };
-    let img = image::load_from_memory(&bytes).unwrap();
-    let sig = Signature::from_image(&img);
     let sig_bytes: Vec<u8> = sig.sig.iter().flat_map(|i| i.to_le_bytes()).collect();
 
     let id = {
@@ -180,7 +210,16 @@ async fn post_image(
                 ][..],
             )
             .unwrap();
-        let row = statement.into_iter().next().unwrap().unwrap();
+        let row = match statement.into_iter().next().unwrap() {
+            Ok(row) => row,
+            Err(error) => {
+                let error = ApiError::Sqlite {
+                    code: error.code,
+                    message: error.message,
+                };
+                return Json(ApiResponse::Err { error });
+            }
+        };
         row.read::<i64, _>(0) as u32
     };
 
@@ -194,30 +233,46 @@ async fn post_image(
         });
     }
 
-    Json(PostImageResponse { id })
+    let response = PostImageResponse { id };
+    Json(ApiResponse::Ok(response))
 }
 
 #[derive(Serialize)]
 pub struct DeleteImageResponse {
     post_id: u32,
+    ids: Vec<u32>,
 }
 
 async fn delete_image(
     Extension(sql_db): Extension<Arc<Mutex<sqlite::Connection>>>,
     Extension(db): Extension<Arc<RwLock<DB>>>,
     Path(post_id): Path<u32>,
-) -> Json<DeleteImageResponse> {
+) -> Json<ApiResponse<DeleteImageResponse>> {
     let images: Vec<_> = {
         let sql_db = sql_db.lock().await;
-        let query = "DELETE FROM images WHERE post_id = ?";
+        let query = "DELETE FROM images WHERE post_id = ? RETURNING *";
         let mut statement = sql_db.prepare(query).unwrap();
         statement.bind((1, post_id as i64)).unwrap();
-        let data = statement.into_iter().map(|row| {
-            let values: Vec<sqlite::Value> = row.unwrap().into();
-            ImageData::try_from(values).unwrap()
-        });
-        data.collect()
+        let mut data = Vec::new();
+        for result in statement.into_iter() {
+            let row = match result {
+                Ok(row) => row,
+                Err(error) => {
+                    let error = ApiError::Sqlite {
+                        code: error.code,
+                        message: error.message,
+                    };
+                    return Json(ApiResponse::Err { error });
+                }
+            };
+            let values: Vec<sqlite::Value> = row.into();
+            let image = ImageData::try_from(values).unwrap();
+            data.push(image);
+        }
+        data
     };
+
+    let ids = images.iter().map(|i| i.id).collect();
 
     let mut db = db.write().await;
     for image in images {
@@ -225,7 +280,8 @@ async fn delete_image(
     }
     drop(db);
 
-    Json(DeleteImageResponse { post_id })
+    let response = DeleteImageResponse { post_id, ids };
+    Json(ApiResponse::Ok(response))
 }
 
 #[derive(Serialize)]
@@ -233,11 +289,14 @@ pub struct GetStatusResponse {
     images: u32,
 }
 
-async fn get_status(Extension(db): Extension<Arc<RwLock<DB>>>) -> Json<GetStatusResponse> {
+async fn get_status(
+    Extension(db): Extension<Arc<RwLock<DB>>>,
+) -> Json<ApiResponse<GetStatusResponse>> {
     let images = {
         let db = db.read().await;
         db.image_count() as u32
     };
 
-    Json(GetStatusResponse { images })
+    let response = GetStatusResponse { images };
+    Json(ApiResponse::Ok(response))
 }
