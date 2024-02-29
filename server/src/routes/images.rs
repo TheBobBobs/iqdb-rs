@@ -38,16 +38,20 @@ pub async fn post(
     };
     let sig_bytes: Vec<u8> = sig.sig.iter().flat_map(|i| i.to_le_bytes()).collect();
 
-    let id = {
+    let mut db = db.write().await;
+
+    let id = db.last_id().map(|i| i + 1).unwrap_or(0);
+
+    {
         let sql_db = sql_db.lock().await;
         let query = "
-        INSERT INTO images (post_id, avglf1, avglf2, avglf3, sig)
-        VALUES (:post_id, :avglf1, :avglf2, :avglf3, :sig)
-        RETURNING id";
+        INSERT INTO images (id, post_id, avglf1, avglf2, avglf3, sig)
+        VALUES (:id, :post_id, :avglf1, :avglf2, :avglf3, :sig)";
         let mut statement = sql_db.prepare(query).unwrap();
         statement
             .bind::<&[(_, sqlite::Value)]>(
                 &[
+                    (":id", (id as i64).into()),
                     (":post_id", (post_id as i64).into()),
                     (":avglf1", sig.avgl.0.into()),
                     (":avglf2", sig.avgl.1.into()),
@@ -56,8 +60,9 @@ pub async fn post(
                 ][..],
             )
             .unwrap();
-        let row = match statement.into_iter().next().unwrap() {
-            Ok(row) => row,
+        match statement.next() {
+            Ok(sqlite::State::Done) => {}
+            Ok(_) => unreachable!(),
             Err(error) => {
                 let error = ApiError::Sqlite {
                     code: error.code,
@@ -66,18 +71,14 @@ pub async fn post(
                 return Json(ApiResponse::Err { error });
             }
         };
-        row.read::<i64, _>(0) as u32
-    };
-
-    {
-        let mut db = db.write().await;
-        db.insert(ImageData {
-            id,
-            post_id,
-            avgl: sig.avgl,
-            sig: sig.sig,
-        });
     }
+
+    db.insert(ImageData {
+        id,
+        post_id,
+        avgl: sig.avgl,
+        sig: sig.sig,
+    });
 
     let response = PostImageResponse { id };
     Json(ApiResponse::Ok(response))
@@ -88,6 +89,8 @@ pub async fn delete(
     Extension(db): Extension<Arc<RwLock<DB>>>,
     Path(post_id): Path<u32>,
 ) -> Json<ApiResponse<DeleteImageResponse>> {
+    let mut db = db.write().await;
+
     let images: Vec<_> = {
         let sql_db = sql_db.lock().await;
         let query = "DELETE FROM images WHERE post_id = ? RETURNING *";
@@ -111,14 +114,11 @@ pub async fn delete(
         }
         data
     };
-
     let ids = images.iter().map(|i| i.id).collect();
 
-    let mut db = db.write().await;
     for image in images {
         db.delete(image.id, image);
     }
-    drop(db);
 
     let response = DeleteImageResponse { post_id, ids };
     Json(ApiResponse::Ok(response))

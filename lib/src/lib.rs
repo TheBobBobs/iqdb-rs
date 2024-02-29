@@ -37,6 +37,10 @@ impl DB {
         self.image_ids.len()
     }
 
+    pub fn last_id(&self) -> Option<u32> {
+        self.image_ids.last().copied()
+    }
+
     pub fn insert(&mut self, image: ImageData) {
         let index = self.image_ids.len() as u32;
         self.image_ids.push(image.id);
@@ -61,9 +65,12 @@ impl DB {
             avgl: image.avgl,
             sig: image.sig,
         };
-        let chunk_index = (id / CHUNK_SIZE) as usize;
+        let Some((index, _)) = self.image_ids.iter().enumerate().find(|(_, &i)| i == id) else {
+            return;
+        };
+        let chunk_index = index / CHUNK_SIZE as usize;
         if let Some(image_index) = self.indexes.get_mut(chunk_index) {
-            image_index.remove(id, sig);
+            image_index.remove(index as u32, sig);
         }
     }
 

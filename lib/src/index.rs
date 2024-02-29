@@ -37,23 +37,23 @@ impl ImageIndex {
         self.avgl_y.len() == CHUNK_SIZE as usize
     }
 
-    pub(crate) fn append(&mut self, id: u32, signature: Signature) {
-        assert_eq!(self.offset + self.avgl_y.len() as u32, id, "Invalid ID");
+    pub(crate) fn append(&mut self, index: u32, signature: Signature) {
+        assert_eq!(self.offset + self.avgl_y.len() as u32, index, "Invalid ID");
         self.avgl_y.push(signature.avgl.0 as f32);
         self.avgl_i.push(signature.avgl.1 as f32);
         self.avgl_q.push(signature.avgl.2 as f32);
         if signature.avgl.0 == 0.0 {
             return;
         }
-        let id = (id - self.offset) as ChunkId;
+        let id = (index - self.offset) as ChunkId;
         for (coef_i, coef) in signature.sig.into_iter().enumerate() {
             let bucket = self.bucket_mut(coef_i / 40, coef);
             bucket.append(id);
         }
     }
 
-    pub(crate) fn remove(&mut self, id: u32, signature: Signature) {
-        let id = (id - self.offset) as usize;
+    pub(crate) fn remove(&mut self, index: u32, signature: Signature) {
+        let id = (index - self.offset) as usize;
         if id < self.avgl_y.len() {
             self.avgl_y[id] = 0.0;
             for (coef_i, coef) in signature.sig.into_iter().enumerate() {
