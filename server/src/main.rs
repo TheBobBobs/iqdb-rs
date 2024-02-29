@@ -14,6 +14,7 @@ mod routes;
 pub mod utils;
 
 #[derive(Parser)]
+#[clap(disable_help_flag = true)]
 struct Args {
     /// The address to bind to
     #[arg(short = 'h', long = "host", default_value = "0.0.0.0")]
@@ -24,6 +25,10 @@ struct Args {
     /// The path to the sqlite db
     #[arg(short = 'd', long = "database", default_value = "iqdb.sqlite")]
     db_path: std::path::PathBuf,
+
+    /// Print help
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
 }
 
 #[tokio::main]
