@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{Extension, Json};
+use axum::{http::StatusCode, Extension, Json};
 use iqdb_rs::DB;
 use serde::Serialize;
 use tokio::sync::RwLock;
@@ -14,12 +14,12 @@ pub struct GetStatusResponse {
 
 pub async fn get(
     Extension(db): Extension<Arc<RwLock<DB>>>,
-) -> Json<ApiResponse<GetStatusResponse>> {
+) -> (StatusCode, Json<ApiResponse<GetStatusResponse>>) {
     let images = {
         let db = db.read().await;
         db.image_count() as u32
     };
 
     let response = GetStatusResponse { images };
-    Json(ApiResponse::Ok(response))
+    ApiResponse::ok(response)
 }

@@ -1,3 +1,4 @@
+use axum::{http::StatusCode, Json};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -23,4 +24,12 @@ pub enum ApiResponse<T, E = ApiError> {
     Err { error: E },
 }
 
+impl<T, E> ApiResponse<T, E> {
+    pub fn ok(t: T) -> (StatusCode, Json<Self>) {
+        (StatusCode::OK, Json(Self::Ok(t)))
+    }
 
+    pub fn err(error: E, status_code: StatusCode) -> (StatusCode, Json<Self>) {
+        (status_code, Json(Self::Err { error }))
+    }
+}

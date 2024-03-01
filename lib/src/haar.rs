@@ -18,12 +18,16 @@ impl FromStr for Signature {
     fn from_str(mut s: &str) -> Result<Self, Self::Err> {
         s = s.strip_prefix("iqdb_").unwrap_or(s);
         let mut avgl = [0., 0., 0.];
+        let mut sig = vec![0; NUM_COEFS * 3];
+        if ((avgl.len() * 16) + (sig.len() * 4)) != s.len() {
+            return Err(());
+        }
+
         for f in &mut avgl {
             let bits = u64::from_str_radix(&s[0..16], 16).unwrap();
             *f = f64::from_bits(bits);
             s = &s[16..];
         }
-        let mut sig = vec![0; NUM_COEFS * 3];
         for i in &mut sig {
             let bits = u16::from_str_radix(&s[0..4], 16).unwrap();
             *i = unsafe { std::mem::transmute(bits) };

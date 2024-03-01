@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     extract::{Multipart, Query},
+    http::StatusCode,
     Extension, Json,
 };
 use iqdb_rs::{ImageData, Signature, DB};
@@ -46,10 +47,10 @@ pub async fn get(
     Extension(db): Extension<Arc<RwLock<DB>>>,
     Query(GetQuery { limit, hash }): Query<GetQuery>,
     form: Option<Multipart>,
-) -> Json<ApiResponse<GetQueryResponse>> {
+) -> (StatusCode, Json<ApiResponse<GetQueryResponse>>) {
     let looking_for = match get_signature(hash, form).await {
         Ok(s) => s,
-        Err(error) => return Json(ApiResponse::Err { error }),
+        Err(error) => return ApiResponse::err(error, StatusCode::BAD_REQUEST),
     };
 
     let result = {
@@ -99,5 +100,5 @@ pub async fn get(
     posts.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap().reverse());
 
     let response = GetQueryResponse { posts };
-    Json(ApiResponse::Ok(response))
+    ApiResponse::ok(response)
 }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Multipart, Path},
+    http::StatusCode,
     Extension, Json,
 };
 use iqdb_rs::{ImageData, DB};
@@ -26,14 +27,14 @@ pub async fn post(
     Extension(db): Extension<Arc<RwLock<DB>>>,
     Path(post_id): Path<u32>,
     form: Multipart,
-) -> Json<ApiResponse<PostImageResponse>> {
+) -> (StatusCode, Json<ApiResponse<PostImageResponse>>) {
     let sig = match get_signature(None, Some(form)).await {
         Ok(sig) => sig,
         Err(mut error) => {
             if matches!(error, ApiError::MissingFileOrHash) {
                 error = ApiError::MissingFile;
             }
-            return Json(ApiResponse::Err { error });
+            return ApiResponse::err(error, StatusCode::BAD_REQUEST);
         }
     };
     let sig_bytes: Vec<u8> = sig.sig.iter().flat_map(|i| i.to_le_bytes()).collect();
@@ -68,7 +69,7 @@ pub async fn post(
                     code: error.code,
                     message: error.message,
                 };
-                return Json(ApiResponse::Err { error });
+                return ApiResponse::err(error, StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
     }
@@ -81,14 +82,14 @@ pub async fn post(
     });
 
     let response = PostImageResponse { id };
-    Json(ApiResponse::Ok(response))
+    ApiResponse::ok(response)
 }
 
 pub async fn delete(
     Extension(sql_db): Extension<Arc<Mutex<sqlite::Connection>>>,
     Extension(db): Extension<Arc<RwLock<DB>>>,
     Path(post_id): Path<u32>,
-) -> Json<ApiResponse<DeleteImageResponse>> {
+) -> (StatusCode, Json<ApiResponse<DeleteImageResponse>>) {
     let mut db = db.write().await;
 
     let images: Vec<_> = {
@@ -105,7 +106,7 @@ pub async fn delete(
                         code: error.code,
                         message: error.message,
                     };
-                    return Json(ApiResponse::Err { error });
+                    return ApiResponse::err(error, StatusCode::INTERNAL_SERVER_ERROR);
                 }
             };
             let values: Vec<sqlite::Value> = row.into();
@@ -121,5 +122,5 @@ pub async fn delete(
     }
 
     let response = DeleteImageResponse { post_id, ids };
-    Json(ApiResponse::Ok(response))
+    ApiResponse::ok(response)
 }
