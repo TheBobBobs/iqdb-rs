@@ -9,11 +9,14 @@ use iqdb_rs::{ImageData, DB};
 use serde::Serialize;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::{utils::get_signature, ApiError, ApiResponse};
+use crate::{response::SignatureResponse, utils::get_signature, ApiError, ApiResponse};
 
 #[derive(Serialize)]
 pub struct PostImageResponse {
     pub id: u32,
+    pub post_id: u32,
+    pub hash: String,
+    pub signature: SignatureResponse,
 }
 
 #[derive(Serialize)]
@@ -78,10 +81,18 @@ pub async fn post(
         id,
         post_id,
         avgl: sig.avgl,
-        sig: sig.sig,
+        sig: sig.sig.clone(),
     });
 
-    let response = PostImageResponse { id };
+    let response = PostImageResponse {
+        post_id,
+        id,
+        hash: sig.to_string(),
+        signature: SignatureResponse {
+            avglf: sig.avgl,
+            sig: sig.sig,
+        },
+    };
     ApiResponse::ok(response)
 }
 

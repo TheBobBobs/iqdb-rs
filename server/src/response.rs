@@ -33,3 +33,9 @@ impl<T, E> ApiResponse<T, E> {
         (status_code, Json(Self::Err { error }))
     }
 }
+
+#[derive(Serialize)]
+pub struct SignatureResponse {
+    pub avglf: (f64, f64, f64),
+    pub sig: Vec<i16>,
+}

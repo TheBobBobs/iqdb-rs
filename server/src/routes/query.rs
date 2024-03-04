@@ -9,7 +9,7 @@ use iqdb_rs::{ImageData, Signature, DB};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
 
-use crate::{utils::get_signature, ApiResponse};
+use crate::{response::SignatureResponse, utils::get_signature, ApiResponse};
 
 const fn query_default_limit() -> usize {
     20
@@ -18,28 +18,22 @@ const fn query_default_limit() -> usize {
 #[derive(Deserialize)]
 pub struct GetQuery {
     #[serde(alias = "l", default = "query_default_limit")]
-    limit: usize,
+    pub limit: usize,
     #[serde(alias = "h")]
-    hash: Option<String>,
+    pub hash: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct GetQueryResponse {
-    posts: Vec<GetQueryResponsePost>,
+    pub posts: Vec<GetQueryResponsePost>,
 }
 
 #[derive(Serialize)]
 pub struct GetQueryResponsePost {
-    post_id: u32,
-    score: f32,
-    hash: String,
-    signature: GetQueryResponseSig,
-}
-
-#[derive(Serialize)]
-pub struct GetQueryResponseSig {
-    avglf: (f64, f64, f64),
-    sig: Vec<i16>,
+    pub post_id: u32,
+    pub score: f32,
+    pub hash: String,
+    pub signature: SignatureResponse,
 }
 
 pub async fn get(
@@ -90,7 +84,7 @@ pub async fn get(
                 post_id: data.post_id,
                 score: *scores.get(&data.id).unwrap(),
                 hash: sig.to_string(),
-                signature: GetQueryResponseSig {
+                signature: SignatureResponse {
                     avglf: sig.avgl,
                     sig: sig.sig,
                 },
