@@ -6,7 +6,10 @@ use axum::{
 };
 use clap::Parser;
 use iqdb_rs::{ImageData, DB};
-use tokio::sync::{Mutex, RwLock};
+use tokio::{
+    signal,
+    sync::{Mutex, RwLock},
+};
 
 mod response;
 pub use response::{ApiError, ApiResponse};
@@ -65,5 +68,32 @@ async fn main() {
         .layer(Extension(sql_db));
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
