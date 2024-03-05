@@ -23,10 +23,7 @@ pub struct GetQuery {
     pub hash: Option<String>,
 }
 
-#[derive(Serialize)]
-pub struct GetQueryResponse {
-    pub posts: Vec<GetQueryResponsePost>,
-}
+pub type GetQueryResponse = Vec<GetQueryResponsePost>;
 
 #[derive(Serialize)]
 pub struct GetQueryResponsePost {
@@ -93,6 +90,6 @@ pub async fn get(
         .collect();
     posts.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap().reverse());
 
-    let response = GetQueryResponse { posts };
+    let response = posts;
     ApiResponse::ok(response)
 }
