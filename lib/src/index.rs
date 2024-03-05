@@ -170,6 +170,7 @@ impl ImageIndex {
             }
             sorted.truncate(limit);
         }
+        sorted.retain(|&(score, id)| !(id == 0 && score == f32::MAX));
 
         if scale != 0. {
             scale = 1. / scale;
