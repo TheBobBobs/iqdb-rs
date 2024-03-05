@@ -36,6 +36,14 @@ async fn main() {
     let args = Args::parse();
     let sql_db = sqlite::open(args.db_path).unwrap();
     let db = {
+        let create = "
+        CREATE TABLE IF NOT EXISTS 'images'
+        (
+            'id' INTEGER PRIMARY KEY NOT NULL , 'post_id' INTEGER UNIQUE NOT NULL ,
+            'avglf1' REAL NOT NULL , 'avglf2' REAL NOT NULL , 'avglf3' REAL NOT NULL ,
+            'sig' BLOB NOT NULL
+        )";
+        sql_db.execute(create).unwrap();
         let query = "SELECT * FROM images";
         let parsed = sql_db.prepare(query).unwrap().into_iter().map(|row| {
             let values: Vec<sqlite::Value> = row.unwrap().into();
