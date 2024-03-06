@@ -4,3 +4,9 @@ members = [
     "server"
 ]
 resolver = "2"
+
+[profile.release-lto]
+inherits = "release"
+strip = true
+lto = true
+codegen-units = 1

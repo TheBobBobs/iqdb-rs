@@ -3,12 +3,12 @@ WORKDIR /usr/src/iqdb-rs
 COPY lib/ lib/
 COPY server/ server/
 COPY Cargo.toml rust-toolchain.toml ./
-RUN RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-gnu
+RUN RUSTFLAGS="-C target-feature=+crt-static" cargo build --profile "release-lto" --target x86_64-unknown-linux-gnu
 
-FROM alpine:3.19.1
+FROM scratch
 WORKDIR /iqdb
-COPY --from=builder /usr/src/iqdb-rs/target/x86_64-unknown-linux-gnu/release/iqdb-server /usr/local/bin/iqdb-server
+COPY --from=builder /usr/src/iqdb-rs/target/x86_64-unknown-linux-gnu/release-lto/iqdb-server /iqdb-server
 
 EXPOSE 5588
-ENTRYPOINT ["iqdb-server"]
+ENTRYPOINT ["/iqdb-server"]
 CMD ["--database", "iqdb.db"]
