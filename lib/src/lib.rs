@@ -16,40 +16,36 @@ mod parse;
 
 pub struct DB {
     indexes: Vec<ImageIndex>,
-    image_ids: Vec<u32>,
+    post_ids: Vec<u32>,
 }
 
 impl DB {
     pub fn new(images: impl IntoIterator<Item = ImageData>) -> Self {
         let mut db = Self {
             indexes: Vec::new(),
-            image_ids: Vec::new(),
+            post_ids: Vec::new(),
         };
         for image in images.into_iter() {
             db.insert(image)
         }
-        println!("TotalImages: {}", db.image_ids.len());
+        println!("TotalImages: {}", db.post_ids.len());
         db
     }
 
     /// Will count images deleted since startup
     pub fn image_count(&self) -> usize {
-        self.image_ids.len()
-    }
-
-    pub fn last_id(&self) -> Option<u32> {
-        self.image_ids.last().copied()
+        self.post_ids.len()
     }
 
     pub fn insert(&mut self, image: ImageData) {
-        let index = self.image_ids.len() as u32;
-        self.image_ids.push(image.id);
+        let index = self.post_ids.len() as u32;
+        self.post_ids.push(image.post_id);
         if self.indexes.is_empty() {
             self.indexes.push(ImageIndex::new(0));
         }
         let mut image_index = self.indexes.last_mut().unwrap();
         if image_index.is_full() {
-            println!("Images: {}", self.image_ids.len());
+            println!("Images: {}", self.post_ids.len());
             self.indexes.push(ImageIndex::new(index));
             image_index = self.indexes.last_mut().unwrap();
         }
@@ -60,12 +56,17 @@ impl DB {
         image_index.append(index, sig)
     }
 
-    pub fn delete(&mut self, id: u32, image: ImageData) {
+    pub fn delete(&mut self, image: ImageData) {
         let sig = Signature {
             avgl: image.avgl,
             sig: image.sig,
         };
-        let Some((index, _)) = self.image_ids.iter().enumerate().find(|(_, &i)| i == id) else {
+        let Some((index, _)) = self
+            .post_ids
+            .iter()
+            .enumerate()
+            .find(|(_, &p)| p == image.post_id)
+        else {
             return;
         };
         let chunk_index = index / CHUNK_SIZE as usize;
@@ -78,13 +79,13 @@ impl DB {
         if limit == 0 {
             return Vec::new();
         }
-        let image_ids = &self.image_ids;
+        let post_ids = &self.post_ids;
 
         let query_index = |image_index: &ImageIndex| {
             let scores = image_index.query(sig, limit);
             scores
                 .into_iter()
-                .map(|(score, index)| (score, image_ids[index as usize]))
+                .map(|(score, index)| (score, post_ids[index as usize]))
                 .collect::<Vec<_>>()
         };
 

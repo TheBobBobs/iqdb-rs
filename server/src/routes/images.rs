@@ -22,7 +22,6 @@ pub struct PostImageResponse {
 #[derive(Serialize)]
 pub struct DeleteImageResponse {
     pub post_id: u32,
-    pub ids: Vec<u32>,
 }
 
 pub async fn post(
@@ -44,18 +43,16 @@ pub async fn post(
 
     let mut db = db.write().await;
 
-    let id = db.last_id().map(|i| i + 1).unwrap_or(0);
-
-    {
+    let id = {
         let sql_db = sql_db.lock().await;
         let query = "
-        INSERT INTO images (id, post_id, avglf1, avglf2, avglf3, sig)
-        VALUES (:id, :post_id, :avglf1, :avglf2, :avglf3, :sig)";
+        INSERT INTO images (post_id, avglf1, avglf2, avglf3, sig)
+        VALUES (:post_id, :avglf1, :avglf2, :avglf3, :sig)
+        RETURNING id";
         let mut statement = sql_db.prepare(query).unwrap();
         statement
             .bind::<&[(_, sqlite::Value)]>(
                 &[
-                    (":id", (id as i64).into()),
                     (":post_id", (post_id as i64).into()),
                     (":avglf1", sig.avgl.0.into()),
                     (":avglf2", sig.avgl.1.into()),
@@ -64,9 +61,8 @@ pub async fn post(
                 ][..],
             )
             .unwrap();
-        match statement.next() {
-            Ok(sqlite::State::Done) => {}
-            Ok(_) => unreachable!(),
+        let row = match statement.into_iter().next().unwrap() {
+            Ok(row) => row,
             Err(error) => {
                 let error = ApiError::Sqlite {
                     code: error.code,
@@ -75,7 +71,8 @@ pub async fn post(
                 return ApiResponse::err(error, StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
-    }
+        row.read::<i64, _>(0) as u32
+    };
 
     db.insert(ImageData {
         id,
@@ -103,35 +100,30 @@ pub async fn delete(
 ) -> (StatusCode, Json<ApiResponse<DeleteImageResponse>>) {
     let mut db = db.write().await;
 
-    let images: Vec<_> = {
+    let image = {
         let sql_db = sql_db.lock().await;
         let query = "DELETE FROM images WHERE post_id = ? RETURNING *";
         let mut statement = sql_db.prepare(query).unwrap();
         statement.bind((1, post_id as i64)).unwrap();
-        let mut data = Vec::new();
-        for result in statement.into_iter() {
-            let row = match result {
-                Ok(row) => row,
-                Err(error) => {
-                    let error = ApiError::Sqlite {
-                        code: error.code,
-                        message: error.message,
-                    };
-                    return ApiResponse::err(error, StatusCode::INTERNAL_SERVER_ERROR);
-                }
-            };
-            let values: Vec<sqlite::Value> = row.into();
-            let image = ImageData::try_from(values).unwrap();
-            data.push(image);
-        }
-        data
+        let Some(result) = statement.into_iter().next() else {
+            return ApiResponse::err(ApiError::NotFound, StatusCode::NOT_FOUND);
+        };
+        let row = match result {
+            Ok(row) => row,
+            Err(error) => {
+                let error = ApiError::Sqlite {
+                    code: error.code,
+                    message: error.message,
+                };
+                return ApiResponse::err(error, StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+        let values: Vec<sqlite::Value> = row.into();
+        ImageData::try_from(values).unwrap()
     };
-    let ids = images.iter().map(|i| i.id).collect();
 
-    for image in images {
-        db.delete(image.id, image);
-    }
+    db.delete(image);
 
-    let response = DeleteImageResponse { post_id, ids };
+    let response = DeleteImageResponse { post_id };
     ApiResponse::ok(response)
 }

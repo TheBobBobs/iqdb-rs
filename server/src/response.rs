@@ -11,6 +11,8 @@ pub enum ApiError {
     InvalidHash,
     InvalidImage,
 
+    NotFound,
+
     Sqlite {
         code: Option<isize>,
         message: Option<String>,

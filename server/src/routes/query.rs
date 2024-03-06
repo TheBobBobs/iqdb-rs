@@ -51,8 +51,11 @@ pub async fn get(
 
     let images: Vec<_> = {
         let sql_db = sql_db.lock().await;
-        let ids: Vec<String> = result.iter().map(|(_, i)| i.to_string()).collect();
-        let query = format!("SELECT * FROM images WHERE id IN ({})", ids.join(", "));
+        let post_ids: Vec<String> = result.iter().map(|(_, i)| i.to_string()).collect();
+        let query = format!(
+            "SELECT * FROM images WHERE post_id IN ({})",
+            post_ids.join(", ")
+        );
         sql_db
             .prepare(query)
             .unwrap()
@@ -67,7 +70,7 @@ pub async fn get(
     let scores: HashMap<_, _> = result
         .iter()
         .copied()
-        .map(|(score, id)| (id, score))
+        .map(|(score, post_id)| (post_id, score))
         .collect();
 
     let mut posts: Vec<GetQueryResponsePost> = images
@@ -79,7 +82,7 @@ pub async fn get(
             };
             GetQueryResponsePost {
                 post_id: data.post_id,
-                score: *scores.get(&data.id).unwrap(),
+                score: *scores.get(&data.post_id).unwrap(),
                 hash: sig.to_string(),
                 signature: SignatureResponse {
                     avglf: sig.avgl,
