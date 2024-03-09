@@ -42,7 +42,7 @@ async fn main() {
         let create = "
         CREATE TABLE IF NOT EXISTS 'images'
         (
-            'id' INTEGER PRIMARY KEY NOT NULL , 'post_id' INTEGER UNIQUE NOT NULL ,
+            'id' INTEGER PRIMARY KEY NOT NULL ,
             'avglf1' REAL NOT NULL , 'avglf2' REAL NOT NULL , 'avglf3' REAL NOT NULL ,
             'sig' BLOB NOT NULL
         )";
@@ -60,7 +60,7 @@ async fn main() {
     let app = Router::new()
         .route("/query", get(routes::query::get).post(routes::query::get))
         .route(
-            "/images/:post_id",
+            "/images/:id",
             post(routes::images::post).delete(routes::images::delete),
         )
         .route("/status", get(routes::status::get))

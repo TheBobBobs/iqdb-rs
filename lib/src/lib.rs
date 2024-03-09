@@ -1,5 +1,7 @@
 #![feature(stdarch_x86_avx512)]
 
+use std::collections::HashMap;
+
 #[cfg(feature = "multi-thread")]
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
@@ -16,36 +18,39 @@ mod parse;
 
 pub struct DB {
     indexes: Vec<ImageIndex>,
-    post_ids: Vec<u32>,
+    index_to_id: Vec<i64>,
+    id_to_index: HashMap<i64, u32>,
 }
 
 impl DB {
     pub fn new(images: impl IntoIterator<Item = ImageData>) -> Self {
         let mut db = Self {
             indexes: Vec::new(),
-            post_ids: Vec::new(),
+            index_to_id: Vec::new(),
+            id_to_index: HashMap::new(),
         };
         for image in images.into_iter() {
             db.insert(image)
         }
-        println!("TotalImages: {}", db.post_ids.len());
+        println!("TotalImages: {}", db.index_to_id.len());
         db
     }
 
     /// Will count images deleted since startup
     pub fn image_count(&self) -> usize {
-        self.post_ids.len()
+        self.index_to_id.len()
     }
 
     pub fn insert(&mut self, image: ImageData) {
-        let index = self.post_ids.len() as u32;
-        self.post_ids.push(image.post_id);
+        let index = self.index_to_id.len() as u32;
+        self.index_to_id.push(image.id);
+        self.id_to_index.insert(image.id, index);
         if self.indexes.is_empty() {
             self.indexes.push(ImageIndex::new(0));
         }
         let mut image_index = self.indexes.last_mut().unwrap();
         if image_index.is_full() {
-            println!("Images: {}", self.post_ids.len());
+            println!("Images: {}", self.index_to_id.len());
             self.indexes.push(ImageIndex::new(index));
             image_index = self.indexes.last_mut().unwrap();
         }
@@ -61,31 +66,27 @@ impl DB {
             avgl: image.avgl,
             sig: image.sig,
         };
-        let Some((index, _)) = self
-            .post_ids
-            .iter()
-            .enumerate()
-            .find(|(_, &p)| p == image.post_id)
-        else {
+
+        let Some(&index) = self.id_to_index.get(&image.id) else {
             return;
         };
-        let chunk_index = index / CHUNK_SIZE as usize;
-        if let Some(image_index) = self.indexes.get_mut(chunk_index) {
-            image_index.remove(index as u32, sig);
+        let chunk_index = index / CHUNK_SIZE;
+        if let Some(image_index) = self.indexes.get_mut(chunk_index as usize) {
+            image_index.remove(index, sig);
         }
     }
 
-    pub fn query(&self, sig: &Signature, limit: usize) -> Vec<(f32, u32)> {
+    pub fn query(&self, sig: &Signature, limit: usize) -> Vec<(f32, i64)> {
         if limit == 0 {
             return Vec::new();
         }
-        let post_ids = &self.post_ids;
+        let index_to_id = &self.index_to_id;
 
         let query_index = |image_index: &ImageIndex| {
             let scores = image_index.query(sig, limit);
             scores
                 .into_iter()
-                .map(|(score, index)| (score, post_ids[index as usize]))
+                .map(|(score, index)| (score, index_to_id[index as usize]))
                 .collect::<Vec<_>>()
         };
 

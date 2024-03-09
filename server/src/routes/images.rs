@@ -13,21 +13,20 @@ use crate::{response::SignatureResponse, utils::get_signature, ApiError, ApiResp
 
 #[derive(Serialize)]
 pub struct PostImageResponse {
-    pub id: u32,
-    pub post_id: u32,
+    pub id: i64,
     pub hash: String,
     pub signature: SignatureResponse,
 }
 
 #[derive(Serialize)]
 pub struct DeleteImageResponse {
-    pub post_id: u32,
+    pub id: i64,
 }
 
 pub async fn post(
     Extension(sql_db): Extension<Arc<Mutex<sqlite::Connection>>>,
     Extension(db): Extension<Arc<RwLock<DB>>>,
-    Path(post_id): Path<u32>,
+    Path(id): Path<i64>,
     form: Multipart,
 ) -> (StatusCode, Json<ApiResponse<PostImageResponse>>) {
     let sig = match get_signature(None, Some(form)).await {
@@ -43,17 +42,16 @@ pub async fn post(
 
     let mut db = db.write().await;
 
-    let id = {
+    {
         let sql_db = sql_db.lock().await;
         let query = "
-        INSERT INTO images (post_id, avglf1, avglf2, avglf3, sig)
-        VALUES (:post_id, :avglf1, :avglf2, :avglf3, :sig)
-        RETURNING id";
+        INSERT INTO images (id, avglf1, avglf2, avglf3, sig)
+        VALUES (:id, :avglf1, :avglf2, :avglf3, :sig)";
         let mut statement = sql_db.prepare(query).unwrap();
         statement
             .bind::<&[(_, sqlite::Value)]>(
                 &[
-                    (":post_id", (post_id as i64).into()),
+                    (":id", id.into()),
                     (":avglf1", sig.avgl.0.into()),
                     (":avglf2", sig.avgl.1.into()),
                     (":avglf3", sig.avgl.2.into()),
@@ -61,28 +59,22 @@ pub async fn post(
                 ][..],
             )
             .unwrap();
-        let row = match statement.into_iter().next().unwrap() {
-            Ok(row) => row,
-            Err(error) => {
-                let error = ApiError::Sqlite {
-                    code: error.code,
-                    message: error.message,
-                };
-                return ApiResponse::err(error, StatusCode::INTERNAL_SERVER_ERROR);
-            }
+        if let Some(Err(error)) = statement.into_iter().next() {
+            let error = ApiError::Sqlite {
+                code: error.code,
+                message: error.message,
+            };
+            return ApiResponse::err(error, StatusCode::INTERNAL_SERVER_ERROR);
         };
-        row.read::<i64, _>(0) as u32
-    };
+    }
 
     db.insert(ImageData {
         id,
-        post_id,
         avgl: sig.avgl,
         sig: sig.sig.clone(),
     });
 
     let response = PostImageResponse {
-        post_id,
         id,
         hash: sig.to_string(),
         signature: SignatureResponse {
@@ -96,15 +88,15 @@ pub async fn post(
 pub async fn delete(
     Extension(sql_db): Extension<Arc<Mutex<sqlite::Connection>>>,
     Extension(db): Extension<Arc<RwLock<DB>>>,
-    Path(post_id): Path<u32>,
+    Path(id): Path<i64>,
 ) -> (StatusCode, Json<ApiResponse<DeleteImageResponse>>) {
     let mut db = db.write().await;
 
     let image = {
         let sql_db = sql_db.lock().await;
-        let query = "DELETE FROM images WHERE post_id = ? RETURNING *";
+        let query = "DELETE FROM images WHERE id = ? RETURNING *";
         let mut statement = sql_db.prepare(query).unwrap();
-        statement.bind((1, post_id as i64)).unwrap();
+        statement.bind((1, id)).unwrap();
         let Some(result) = statement.into_iter().next() else {
             return ApiResponse::err(ApiError::NotFound, StatusCode::NOT_FOUND);
         };
@@ -124,6 +116,6 @@ pub async fn delete(
 
     db.delete(image);
 
-    let response = DeleteImageResponse { post_id };
+    let response = DeleteImageResponse { id };
     ApiResponse::ok(response)
 }

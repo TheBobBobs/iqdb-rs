@@ -23,11 +23,11 @@ pub struct GetQuery {
     pub hash: Option<String>,
 }
 
-pub type GetQueryResponse = Vec<GetQueryResponsePost>;
+pub type GetQueryResponse = Vec<GetQueryResponseImage>;
 
 #[derive(Serialize)]
-pub struct GetQueryResponsePost {
-    pub post_id: u32,
+pub struct GetQueryResponseImage {
+    pub id: i64,
     pub score: f32,
     pub hash: String,
     pub signature: SignatureResponse,
@@ -51,11 +51,8 @@ pub async fn get(
 
     let images: Vec<_> = {
         let sql_db = sql_db.lock().await;
-        let post_ids: Vec<String> = result.iter().map(|(_, i)| i.to_string()).collect();
-        let query = format!(
-            "SELECT * FROM images WHERE post_id IN ({})",
-            post_ids.join(", ")
-        );
+        let ids: Vec<String> = result.iter().map(|(_, i)| i.to_string()).collect();
+        let query = format!("SELECT * FROM images WHERE id IN ({})", ids.join(", "));
         sql_db
             .prepare(query)
             .unwrap()
@@ -70,19 +67,19 @@ pub async fn get(
     let scores: HashMap<_, _> = result
         .iter()
         .copied()
-        .map(|(score, post_id)| (post_id, score))
+        .map(|(score, id)| (id, score))
         .collect();
 
-    let mut posts: Vec<GetQueryResponsePost> = images
+    let mut images: Vec<GetQueryResponseImage> = images
         .into_iter()
         .map(|data| {
             let sig = Signature {
                 avgl: data.avgl,
                 sig: data.sig,
             };
-            GetQueryResponsePost {
-                post_id: data.post_id,
-                score: *scores.get(&data.post_id).unwrap(),
+            GetQueryResponseImage {
+                id: data.id,
+                score: *scores.get(&data.id).unwrap(),
                 hash: sig.to_string(),
                 signature: SignatureResponse {
                     avglf: sig.avgl,
@@ -91,8 +88,12 @@ pub async fn get(
             }
         })
         .collect();
-    posts.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap().reverse());
+    images.sort_by(|a, b| {
+        a.score
+            .total_cmp(&b.score)
+            .then_with(|| a.id.cmp(&b.id))
+            .reverse()
+    });
 
-    let response = posts;
-    ApiResponse::ok(response)
+    ApiResponse::ok(images)
 }
