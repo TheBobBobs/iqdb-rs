@@ -36,9 +36,8 @@ impl DB {
         db
     }
 
-    /// Will count images deleted since startup
     pub fn image_count(&self) -> usize {
-        self.index_to_id.len()
+        self.id_to_index.len()
     }
 
     pub fn insert(&mut self, image: ImageData) {
@@ -67,7 +66,7 @@ impl DB {
             sig: image.sig,
         };
 
-        let Some(&index) = self.id_to_index.get(&image.id) else {
+        let Some(index) = self.id_to_index.remove(&image.id) else {
             return;
         };
         let chunk_index = index / CHUNK_SIZE;
