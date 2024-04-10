@@ -16,18 +16,13 @@ impl TryFrom<Vec<sqlite::Value>> for ImageData {
         let mut iter = value.into_iter();
         let slice = [0u32; 5].map(|_| iter.next().unwrap());
         match slice {
-            [Integer(id), Float(avglf1), Float(avglf2), Float(avglf3), Binary(mut sig)] => {
-                sig.shrink_to_fit();
-                let mut sig = std::mem::ManuallyDrop::new(sig);
-                if (sig.capacity() % 2) != 0 {
-                    return Err(());
-                };
-                let length = sig.len() / 2;
-                let capacity = sig.capacity() / 2;
-                let sig = sig.as_mut_ptr() as *mut i16;
-                let mut sig = unsafe { Vec::from_raw_parts(sig, length, capacity) };
-                if sig.len() != 120 {
-                    panic!("Invalid signature len: {}", sig.len());
+            [Integer(id), Float(avglf1), Float(avglf2), Float(avglf3), Binary(sig_bytes)] => {
+                assert_eq!(sig_bytes.len(), 240);
+                let mut sig = Vec::with_capacity(120);
+                for c in sig_bytes.chunks_exact(2) {
+                    let bytes = [c[0], c[1]];
+                    let i = i16::from_le_bytes(bytes);
+                    sig.push(i);
                 }
                 sig[0..40].sort();
                 sig[40..80].sort();
