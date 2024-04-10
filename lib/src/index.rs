@@ -2,7 +2,7 @@
 use std::arch::x86_64::{_mm512_loadu_ps, _mm512_mask_sub_ps, _mm512_set1_ps, _mm512_storeu_ps};
 
 use crate::{
-    bucket::{Bucket, PACKED_SIZE},
+    bucket::{Bucket, Packed},
     haar::Signature,
 };
 
@@ -85,7 +85,7 @@ impl ImageIndex {
         let total = self.avgl_y.len();
 
         let mut scale = 0.;
-        let mut scores: Vec<f32> = vec![0.; total + PACKED_SIZE as usize];
+        let mut scores: Vec<f32> = vec![0.; total + Packed::BITS as usize];
 
         assert!(total <= self.avgl_y.len());
         assert!(total <= self.avgl_i.len());

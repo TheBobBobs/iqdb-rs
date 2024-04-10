@@ -30,7 +30,7 @@ impl DB {
             id_to_index: HashMap::new(),
         };
         for image in images.into_iter() {
-            db.insert(image)
+            db.insert(image);
         }
         println!("TotalImages: {}", db.index_to_id.len());
         db
@@ -94,7 +94,7 @@ impl DB {
         #[cfg(not(feature = "multi-thread"))]
         let mut all_scores: Vec<_> = self.indexes.iter().flat_map(query_index).collect();
 
-        all_scores.sort_by(|a, b| a.partial_cmp(b).unwrap().reverse());
+        all_scores.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)).reverse());
         all_scores.truncate(limit);
         all_scores
     }

@@ -30,7 +30,7 @@ impl FromStr for Signature {
         }
         for i in &mut sig {
             let bits = u16::from_str_radix(&s[0..4], 16).unwrap();
-            *i = unsafe { std::mem::transmute(bits) };
+            *i = unsafe { std::mem::transmute::<u16, i16>(bits) };
             s = &s[4..];
         }
         Ok(Self {
@@ -230,8 +230,13 @@ impl Signature {
 
         for y in 0..NUM_PIXELS {
             for x in 0..NUM_PIXELS {
-                if let Some(pixel) = img.get_pixel_checked(x as u32, y as u32) {
-                    let index = x + y * NUM_PIXELS;
+                let index = x + y * NUM_PIXELS;
+                if let Some(&Rgba(pixel)) = img.get_pixel_checked(x as u32, y as u32) {
+                    // TODO: handle alpha channel
+                    // let pixel = pixel.map(|c| c as f64 / 255.);
+                    // a[index] = ((1. - pixel[3]) + (pixel[3] * pixel[0])) * 255.;
+                    // b[index] = ((1. - pixel[3]) + (pixel[3] * pixel[1])) * 255.;
+                    // c[index] = ((1. - pixel[3]) + (pixel[3] * pixel[2])) * 255.;
                     a[index] = pixel[0] as f64;
                     b[index] = pixel[1] as f64;
                     c[index] = pixel[2] as f64;

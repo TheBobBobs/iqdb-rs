@@ -1,7 +1,6 @@
 use crate::index::{ChunkId, CHUNK_SIZE};
 
 pub(crate) type Packed = u16;
-pub(crate) const PACKED_SIZE: u32 = 16;
 
 #[cfg(feature = "simd")]
 const MAX_VEC_LEN: usize = CHUNK_SIZE as usize / (std::mem::size_of::<ChunkId>() * 8);
@@ -12,7 +11,7 @@ const MAX_VEC_LEN: usize = usize::MAX;
 #[derive(Clone)]
 pub(crate) enum Bucket {
     Empty,
-    Array([ChunkId; 12]),
+    Array([ChunkId; 15]),
     Vec(Vec<ChunkId>),
     Mask(Vec<Packed>),
 }
@@ -25,7 +24,7 @@ impl Bucket {
     pub(crate) fn append(&mut self, id: ChunkId) {
         match self {
             Self::Empty => {
-                let mut array = [0; 12];
+                let mut array = [0; 15];
                 array[0] = id;
                 *self = Self::Array(array);
             }
@@ -46,9 +45,9 @@ impl Bucket {
                 vec.push(id);
                 if vec.len() >= MAX_VEC_LEN {
                     let mut mask = Vec::with_capacity(MAX_VEC_LEN);
-                    for &mut chunk_id in vec {
-                        let offset = chunk_id % PACKED_SIZE as u16;
-                        let index = chunk_id as usize / PACKED_SIZE as usize;
+                    for &mut id in vec {
+                        let offset = id as u32 % Packed::BITS;
+                        let index = (id as u32 / Packed::BITS) as usize;
                         while index >= mask.len() {
                             mask.push(0);
                         }
@@ -58,9 +57,8 @@ impl Bucket {
                 }
             }
             Self::Mask(mask) => {
-                let chunk_id = id as u32 % CHUNK_SIZE;
-                let offset = chunk_id % PACKED_SIZE;
-                let index = (chunk_id / PACKED_SIZE) as usize;
+                let offset = id as u32 % Packed::BITS;
+                let index = (id as u32 / Packed::BITS) as usize;
                 while index >= mask.len() {
                     mask.push(0);
                 }
@@ -96,16 +94,16 @@ impl Bucket {
             }
             Self::Mask(mask) => {
                 let len: usize = mask.iter().map(|m| m.count_ones() as usize).sum();
-                let offset = id % PACKED_SIZE as u16;
-                let index = id as usize / PACKED_SIZE as usize;
+                let offset = id % Packed::BITS as u16;
+                let index = id as usize / Packed::BITS as usize;
                 if index < mask.len() {
                     mask[index] &= !(1 << offset);
                 }
                 if len < MAX_VEC_LEN {
                     let mut vec = Vec::with_capacity(len);
                     for (index, m) in mask.iter().enumerate() {
-                        let index = index as ChunkId * PACKED_SIZE as ChunkId;
-                        for offset in 0..PACKED_SIZE as ChunkId {
+                        let index = index as ChunkId * Packed::BITS as ChunkId;
+                        for offset in 0..Packed::BITS as ChunkId {
                             if m & (1 << offset) != 0 {
                                 vec.push(index + offset);
                             }
