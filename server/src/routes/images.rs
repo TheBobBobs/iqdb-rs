@@ -13,6 +13,7 @@ use crate::{response::SignatureResponse, utils::get_signature, ApiError, ApiResp
 
 #[derive(Serialize)]
 pub struct PostImageResponse {
+    #[serde(rename = "post_id")]
     pub id: i64,
     pub hash: String,
     pub signature: SignatureResponse,
@@ -20,6 +21,7 @@ pub struct PostImageResponse {
 
 #[derive(Serialize)]
 pub struct DeleteImageResponse {
+    #[serde(rename = "post_id")]
     pub id: i64,
 }
 
@@ -41,6 +43,15 @@ pub async fn post(
     let sig_bytes: Vec<u8> = sig.sig.iter().flat_map(|i| i.to_le_bytes()).collect();
 
     let mut db = db.write().await;
+
+    if db.contains(id) {
+        let mut sql_db = sql_db.lock().await;
+        match delete_image(&mut sql_db, id).await {
+            Ok(Some(image)) => db.delete(image),
+            Ok(None) => unreachable!(),
+            Err(e) => return ApiResponse::err(e, StatusCode::INTERNAL_SERVER_ERROR),
+        };
+    }
 
     {
         let sql_db = sql_db.lock().await;
@@ -93,29 +104,38 @@ pub async fn delete(
     let mut db = db.write().await;
 
     let image = {
-        let sql_db = sql_db.lock().await;
-        let query = "DELETE FROM images WHERE id = ? RETURNING *";
-        let mut statement = sql_db.prepare(query).unwrap();
-        statement.bind((1, id)).unwrap();
-        let Some(result) = statement.into_iter().next() else {
-            return ApiResponse::err(ApiError::NotFound, StatusCode::NOT_FOUND);
-        };
-        let row = match result {
-            Ok(row) => row,
-            Err(error) => {
-                let error = ApiError::Sqlite {
-                    code: error.code,
-                    message: error.message,
-                };
-                return ApiResponse::err(error, StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        };
-        let values: Vec<sqlite::Value> = row.into();
-        ImageData::try_from(values).unwrap()
+        let mut sql_db = sql_db.lock().await;
+        match delete_image(&mut sql_db, id).await {
+            Ok(Some(image)) => image,
+            Ok(None) => return ApiResponse::err(ApiError::NotFound, StatusCode::NOT_FOUND),
+            Err(e) => return ApiResponse::err(e, StatusCode::INTERNAL_SERVER_ERROR),
+        }
     };
 
     db.delete(image);
 
     let response = DeleteImageResponse { id };
     ApiResponse::ok(response)
+}
+
+async fn delete_image(
+    sql_db: &mut sqlite::Connection,
+    id: i64,
+) -> Result<Option<ImageData>, ApiError> {
+    let query = "DELETE FROM images WHERE id = ? RETURNING *";
+    let mut statement = sql_db.prepare(query).unwrap();
+    statement.bind((1, id)).unwrap();
+    let row = match statement.into_iter().next() {
+        Some(Ok(row)) => row,
+        Some(Err(e)) => {
+            return Err(ApiError::Sqlite {
+                code: e.code,
+                message: e.message,
+            })
+        }
+        None => return Ok(None),
+    };
+    let values: Vec<sqlite::Value> = row.into();
+    let image = ImageData::try_from(values).unwrap();
+    Ok(Some(image))
 }

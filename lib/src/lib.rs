@@ -36,6 +36,10 @@ impl DB {
         db
     }
 
+    pub fn contains(&self, id: i64) -> bool {
+        self.id_to_index.contains_key(&id)
+    }
+
     pub fn image_count(&self) -> usize {
         self.id_to_index.len()
     }
