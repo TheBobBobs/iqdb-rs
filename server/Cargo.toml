@@ -15,6 +15,5 @@ sqlite = "0.36.1"
 tokio = { version = "1.0", features = [ "macros", "rt-multi-thread", "signal" ] }
 
 [features]
-default = ["multi-thread", "simd"]
+default = ["multi-thread"]
 multi-thread = ["iqdb-rs/multi-thread"]
-simd = ["iqdb-rs/simd"]
