@@ -2,9 +2,9 @@ use crate::index::{ChunkId, CHUNK_SIZE};
 
 pub(crate) type Packed = u16;
 
-#[cfg(target_feature = "avx2")]
+#[cfg(target_feature = "avx512f")]
 const MAX_VEC_LEN: usize = CHUNK_SIZE as usize / (std::mem::size_of::<ChunkId>() * 8);
-#[cfg(not(target_feature = "avx2"))]
+#[cfg(not(target_feature = "avx512f"))]
 // prevent using masks without simd
 const MAX_VEC_LEN: usize = usize::MAX;
 

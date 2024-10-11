@@ -1,4 +1,4 @@
-#[cfg(target_feature = "avx2")]
+#[cfg(target_feature = "avx512f")]
 use std::arch::x86_64::{_mm512_loadu_ps, _mm512_mask_sub_ps, _mm512_set1_ps, _mm512_storeu_ps};
 
 use crate::{
@@ -128,7 +128,7 @@ impl ImageIndex {
                     }
                 }
                 Bucket::Mask(mask) => {
-                    #[cfg(target_feature = "avx2")]
+                    #[cfg(target_feature = "avx512f")]
                     {
                         let m_weight = unsafe { _mm512_set1_ps(weight) };
                         for (index, &m) in mask.iter().enumerate() {
@@ -139,7 +139,7 @@ impl ImageIndex {
                             unsafe { _mm512_storeu_ps(scores.as_mut_ptr().add(index), m_score) };
                         }
                     }
-                    #[cfg(not(target_feature = "avx2"))]
+                    #[cfg(not(target_feature = "avx512f"))]
                     {
                         let _ = mask;
                         unreachable!()
