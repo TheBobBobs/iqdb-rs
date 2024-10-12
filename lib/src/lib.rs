@@ -7,14 +7,14 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 pub use haar::Signature;
 use index::ImageIndex;
-pub use parse::ImageData;
+pub use sql::{ImageData, SqlDB, SqlSchema};
 
 use crate::index::CHUNK_SIZE;
 
 mod bucket;
 mod haar;
 mod index;
-mod parse;
+mod sql;
 
 pub struct DB {
     indexes: Vec<ImageIndex>,

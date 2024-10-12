@@ -5,11 +5,11 @@ use axum::{
     http::StatusCode,
     Extension, Json,
 };
-use iqdb_rs::{ImageData, Signature, DB};
+use iqdb_rs::{Signature, DB};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
 
-use crate::{response::SignatureResponse, utils::get_signature, ApiResponse};
+use crate::{response::SignatureResponse, utils::get_signature, ApiResponse, SqlDB};
 
 const fn query_default_limit() -> usize {
     20
@@ -35,7 +35,7 @@ pub struct GetQueryResponseImage {
 }
 
 pub async fn get(
-    Extension(sql_db): Extension<Arc<Mutex<sqlite::Connection>>>,
+    Extension(sql_db): Extension<Arc<Mutex<SqlDB>>>,
     Extension(db): Extension<Arc<RwLock<DB>>>,
     Query(GetQuery { limit, hash }): Query<GetQuery>,
     form: Option<Multipart>,
@@ -52,17 +52,8 @@ pub async fn get(
 
     let images: Vec<_> = {
         let sql_db = sql_db.lock().await;
-        let ids: Vec<String> = result.iter().map(|(_, i)| i.to_string()).collect();
-        let query = format!("SELECT * FROM images WHERE id IN ({})", ids.join(", "));
-        sql_db
-            .prepare(query)
-            .unwrap()
-            .into_iter()
-            .map(|row| {
-                let values: Vec<sqlite::Value> = row.unwrap().into();
-                ImageData::try_from(values).unwrap()
-            })
-            .collect()
+        let ids = result.iter().map(|(_, i)| *i);
+        sql_db.get_many(ids).collect()
     };
 
     let scores: HashMap<_, _> = result

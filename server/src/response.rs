@@ -19,6 +19,15 @@ pub enum ApiError {
     },
 }
 
+impl From<sqlite::Error> for ApiError {
+    fn from(value: sqlite::Error) -> Self {
+        Self::Sqlite {
+            code: value.code,
+            message: value.message,
+        }
+    }
+}
+
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum ApiResponse<T, E = ApiError> {
