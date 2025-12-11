@@ -251,7 +251,7 @@ impl Signature {
 
 //https://github.com/libgd/libgd/blob/0d75136bd3e8651ded7c64a140791ed10de1c63c/src/gd.c#L3479-L3479
 pub fn resized(img: &DynamicImage) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
-    const ALPHA_MAX: u8 = 127;
+    const ALPHA_MAX: f32 = 255.0;
     let mut dst = image::ImageBuffer::<Rgba<u8>, _>::new(NUM_PIXELS as u32, NUM_PIXELS as u32);
     for y in 0..NUM_PIXELS {
         for x in 0..NUM_PIXELS {
@@ -290,7 +290,7 @@ pub fn resized(img: &DynamicImage) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
                     let pcontribution = xportion * yportion;
                     let Rgba([r, g, b, a]) = img.get_pixel(sx as u32, sy as u32);
 
-                    let alpha_factor = (ALPHA_MAX - a) as f32 * pcontribution;
+                    let alpha_factor = (ALPHA_MAX / a as f32) * pcontribution;
                     red += r as f32 * alpha_factor;
                     green += g as f32 * alpha_factor;
                     blue += b as f32 * alpha_factor;
@@ -321,7 +321,7 @@ pub fn resized(img: &DynamicImage) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
             red = red.round().min(255.0);
             green = green.round().min(255.0);
             blue = blue.round().min(255.0);
-            alpha = alpha.round().min(ALPHA_MAX as f32);
+            alpha = alpha.round().min(ALPHA_MAX);
 
             let pixel = dst.get_pixel_mut(x as u32, y as u32);
             pixel.0 = [red as u8, green as u8, blue as u8, alpha as u8];

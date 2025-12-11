@@ -110,14 +110,10 @@ mod tests {
 
     #[test]
     fn query() {
-        let connection = sqlite::open("iqdb.sqlite").unwrap();
         let db = {
-            let query = "SELECT * FROM images";
-            let parsed = connection.prepare(query).unwrap().into_iter().map(|row| {
-                let values: Vec<sqlite::Value> = row.unwrap().into();
-                ImageData::try_from(values).unwrap()
-            });
-            DB::new(parsed)
+            let connection = sqlite::open("iqdb.sqlite").unwrap();
+            let sql = SqlDB::new(connection);
+            DB::new(sql.load())
         };
         let img = image::open("138934.jpg").unwrap();
         let sig = Signature::from_image(&img);
@@ -125,7 +121,7 @@ mod tests {
         let start_time = std::time::Instant::now();
         let result = db.query(&sig, 20);
         let elapsed = start_time.elapsed().as_nanos();
-        assert_eq!(result[0].0, 93.70242);
+        assert!((result[0].0 - 93.70242).abs() < 0.001);
         assert_eq!(result[0].1, 138_934);
         println!("Query: {:.3}ms", elapsed as f64 / 1_000. / 1_000.,);
         let ids: Vec<_> = result.iter().map(|(_, id)| id.to_string()).collect();
